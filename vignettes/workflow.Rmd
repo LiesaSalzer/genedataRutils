@@ -1,0 +1,186 @@
+---
+title: "Workflow"
+author: "Liesa Salzer"
+date: "2/10/2021"
+
+output:
+    BiocStyle::html_document:
+        toc_float: true
+vignette: >
+    %\VignetteIndexEntry{Description and usage of Description and usage of genedataRutils}
+    %\VignetteEngine{knitr::rmarkdown}
+    %\VignetteEncoding{UTF-8}
+    %\VignettePackage{Spectra}
+    %\VignetteDepends{Spectra,BiocStyle}
+---
+
+```{r style, echo = FALSE, results = 'asis', message=FALSE}
+BiocStyle::markdown()
+```
+
+**Package**: `r Biocpkg("genedataRutils")`<br />
+**Authors**: `r packageDescription("genedataRutils")[["Author"]] `<br />
+**Last modified:** `r file.info("genedataRutils.Rmd")$mtime`<br />
+**Compiled**: `r date()`
+
+```{r, echo = FALSE, message = FALSE}
+library(BiocStyle)
+```
+
+# load libraries 
+```{r, echo = FALSE, message = FALSE}
+library(Spectra)
+library(MsBackendMgf)
+library(tidyverse)
+library(MsBackendMassbank)
+library(MsCoreUtils)
+library(MsBackendMsp)
+```
+
+# load MS data
+```{r}
+# read MS1 Cluster-data
+ms1_cluster <- readGda("D:/Experiments/Lipidomics_daf2_N2/RPLC_eval/20200901_Celegans_RPLCLipidsPos/20200901_Celegans_RPLCLipidsPos_Clusters.gda")
+
+# read MS1 Peak-data
+ms1_peak <- readGda("D:/Experiments/Lipidomics_daf2_N2/RPLC_eval/20200901_Celegans_RPLCLipidsPos/20200901_Celegans_RPLCLipidsPos_Peaks.gda")
+
+# load MS2 data
+mgf_files <- dir("D:/Experiments/Lipidomics_daf2_N2/RPLC_eval/20200901_Celegans_RPLCLipidsPos/MS2_consolidated",
+                 pattern = "mgf$",
+                 full.names = TRUE)
+
+ms2_spectra <- Spectra(mgf_files,
+                       source = MsBackendMgf(),
+                       backend = MsBackendDataFrame())
+```
+
+
+# load libraries 
+```{r}
+
+# load massbank files 
+massbank_files <- dir("D:/Software/R/ms2consolid/BLI_MassBankRecords/BLI_MassBankRecords/pos",
+                      pattern = ".txt$",
+                      full.names = TRUE)
+
+massbank_library <- Spectra(massbank_files,
+                      source = MsBackendMassbank(),
+                      backend = MsBackendDataFrame())
+
+# load msp LipidBlast files
+msp_files <- dir("D:/Data/Databases/LipidBlast",
+                 full.names = TRUE, pattern = "msp$")
+
+be <- backendInitialize(MsBackendMsp(), msp_files)
+
+ms2library_LipidBlast <- Spectra(be,
+                      source = MsBackendMsp(),
+                      backend = MsBackendDataFrame())
+```
+
+# process MS data 
+```{r}
+
+# Linking MS1 and MS2 data
+spectra <- ms2AddId(ms1_cluster, ms2_spectra)
+
+# Reconstruction of isotope pattern
+isoPattern <- reconstructIsoPattern(ms1_peak, ms1_cluster)
+
+plotSpectra(isoPattern, main = isoPattern$CLUSTER_ID)
+
+isoPatternComb <- combineSpectra(isoPattern,
+                                 f = isoPattern$CLUSTER_ID,
+                                 intensityFun = base::sum,
+                                 mzd = 0.005)
+
+#plotSpectra(isoPatternComb, main = isoPatternComb$CLUSTER_ID)
+
+
+# Check if spectra are consolidated 
+n_distinct(spectra$CLUSTER_ID) == length(spectra$CLUSTER_ID)
+
+# Spectra consolidation
+spectra_opt <- spectra %>%
+  combineSpectra(f = spectra$CLUSTER_ID,
+                 p = spectra$CLUSTER_ID,
+                 intensityFun = base::sum,
+                 mzFun = base::mean,
+                 ppm = 10,
+                 minProp = 0.7,
+                 peaks = "intersect")
+
+# Check again if spectra are consolidated 
+n_distinct(spectra$CLUSTER_ID) == length(spectra_opt$CLUSTER_ID)
+
+# clean up MS2 spectra a bit
+my_filter <- function(x) {
+  x > max(x, na.rm = TRUE) / 100
+}
+
+spectra_filtered <- filterIntensity(spectra_opt, intensity = my_filter)
+```
+
+# library matching
+
+```{r}
+
+# adducts <- c("[M+H]+", "[M+Na]+" )
+# 
+# ## ms1
+# 
+# annotateMz(ms1_cluster,
+#            massbank_library,
+#            tolerance = 0.005,
+#            adducts = adducts)
+
+
+## ms2
+# MassBank library
+lib_massbank <- compareSpectraLibrary(spectra_filtered, massbank_library, tolerance = 0.005)
+
+lib_massbank_filt <- lib_massbank %>% filter(backward != "NaN", backward >= 0.7, forward >= 0.7)
+
+
+
+# LipidBlast library
+ms2library_filter <- ms2library_LipidBlast[which(ms2library_LipidBlast$adduct %in% c("[M+H]+",
+                                                               "[M+Na]+",
+                                                               "[M+NH4]+"))]
+
+lib_LipidBlast <- compareSpectraLibrary(spectra_filtered, 
+                                        ms2library_filter, 
+                                        tolerance = 0.005)
+
+lib_LipidBlast_filt <- lib_LipidBlast %>% filter(backward != "NaN", backward >= 0.7, forward >= 0.7)
+```
+
+# adding metabolite identifications
+```{r}
+
+metids <- lib_LipidBlast_filt %>% select(DBID = lib_name, Formula = lib_)
+
+ms1_cluster_new <- addMetid(ms1_cluster, lib_LipidBlast_filt)
+
+```
+
+# export data
+```{r}
+
+
+#export(ms2_spectra, backend = MsBackendMgf(), file = "MS2_spectra.mgf")
+#export(isoPatternComb, backend = MsBackendMgf(), file = "MS1_spectra.mgf")
+
+
+# # write single file
+# writeSiriusFile(isoPatternComb, spectra, singleFile = TRUE)
+# 
+# # write multiple files
+# writeSiriusFile(isoPatternComb, spectra)
+
+
+
+## Writing of results to differnt formats
+writeGda(ms1_cluster_new)
+

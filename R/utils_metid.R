@@ -26,14 +26,14 @@ annotateMz <- function(x, ms1library,
                        rtimeTolerance = Inf,
                        matchAdduct = FALSE,
                        adducts = c("[M+H]+")) {
-
+  
   # sanity checks on ms1Library
   if(!all(c("name", "adduct", "mz") %in% colnames(ms1library))) {
     
     stop("The columns name, adduct and mz are required")
     
   }
-
+  
   # filter based on the adducts  
   if(matchAdduct) {
     
@@ -67,7 +67,7 @@ annotateMz <- function(x, ms1library,
   }
   
   results
-
+  
 }
 
 
@@ -103,12 +103,12 @@ compareSpectraLibrary <- function(x,
   
   # sanity checks
   if(!all(c("accession", "name", "exactmass", "adduct", "precursorMz") %in%
-     spectraVariables(ms2library))) {
+          spectraVariables(ms2library))) {
     
     stop("Missing basic library information: accession, name, exactmass, adduct and precursorMz")
     
   }
-
+  
   results_list <- spectrapply(x,
                               FUN = .compareLibrary,
                               ms2library = ms2library,
@@ -117,9 +117,9 @@ compareSpectraLibrary <- function(x,
                               rtOffset = rtOffset,
                               rtimeTolerance = rtimeTolerance,
                               plot = plot)
-
+  
   do.call(rbind, results_list)
-
+  
 }
 
 #'
@@ -132,7 +132,7 @@ compareSpectraLibrary <- function(x,
                             rtOffset = 0,
                             rtimeTolerance = Inf,
                             plot = FALSE) {
-
+  
   # get precursor information
   mz <- x$precursorMz
   rtime <- x$rtime
@@ -193,6 +193,8 @@ compareSpectraLibrary <- function(x,
                          lib_name = unlist(lapply(ms2library$name, function(x) {paste0(x, collapse = ";")})),
                          #lib_name = paste0(unlist(ms2library$name), collapse = ";"),
                          lib_exactmass = ms2library$exactmass,
+                         lib_furmula = ms2library$formula,
+                         lib_inchikey = ms2library$inchikey,
                          lib_adduct = ms2library$adduct,
                          lib_precursorMz = ms2library$precursorMz,
                          lib_collisionEnergy = ms2library$collisionEnergy)
@@ -235,7 +237,7 @@ matchIonMode <- function(pos,
                          ppm = 0,
                          rtOffset = 0,
                          rtimeTolerance = Inf) {
-
+  
   # get data
   row_anno_pos <- getRowAnno(pos)
   row_anno_neg <- getRowAnno(neg)
@@ -259,21 +261,21 @@ matchIonMode <- function(pos,
     
     adduct_df$mz.pos <- match_df$`m/z.pos`[i]
     adduct_df$mz.neg <- match_df$`m/z.neg`[i]
-
+    
     adduct_df <- cbind(adduct_df, match = mapply(.adduct_match,
-                                                            adduct_df$adduct.pos,
-                                                            adduct_df$adduct.neg,
-                                                            adduct_df$mz.pos,
-                                                            adduct_df$mz.neg,
-                                                            tolerance,
-                                                            ppm))
+                                                 adduct_df$adduct.pos,
+                                                 adduct_df$adduct.neg,
+                                                 adduct_df$mz.pos,
+                                                 adduct_df$mz.neg,
+                                                 tolerance,
+                                                 ppm))
     
     
     
     adduct_df <- adduct_df[which(adduct_df$match),]
     
     if(nrow(adduct_df) > 0) {
-
+      
       match_df$match[i] <- paste0(adduct_df$adduct.pos[1], "<->",adduct_df$adduct.neg[1])
       
     } else {
@@ -358,7 +360,7 @@ addMetid <- function(x, metids) {
   row_anno <- merge(row_anno, metids, by = "row.names", all = TRUE)
   row.names(row_anno) <- row_anno$Row.names
   row_anno <- row_anno[, !(colnames(row_anno) %in% c("Row.names"))]
-
+  
   x[[2]] <- row_anno
   
   x
